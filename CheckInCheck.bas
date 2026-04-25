@@ -5,16 +5,16 @@ Option Explicit
 '====================
 Const SHEET_RELEASE As String = "release"
 Const SHEET_RESULT As String = "result"
-Const SHEET_AAA As String = "aaa"
+Const SHEET_AAA As String = "STリリース管理台帳"
 
 ' release 列
 Const COL_KEYA As Long = 1 'A列
 Const COL_KEYB As Long = 2 'B列
 
 ' aaa 列
-Const COL_AAA_KEYC As Long = 1 'A列
-Const COL_AAA_NO As Long = 2 'B列
-Const COL_AAA_STATUS As Long = 3 'C列
+Const COL_AAA_KEYC As Long = 4 'D列：B票番号
+Const COL_AAA_NO As Long = 1 'A列：No
+Const COL_AAA_STATUS As Long = 12 'L列：出庫ステータス
 
 ' result 输出列（固定不建议改）
 Const COL_RES_A As Long = 1
@@ -30,10 +30,10 @@ Const COL_RES_H As Long = 8
 Dim TARGET_SHEETS As Variant
 
 ' target 列
-Const COL_T_A As Long = 1
-Const COL_T_B As Long = 2
-Const COL_T_E As Long = 5
-Const COL_T_F As Long = 6
+Const COL_T_NO As Long = 1      '項番
+Const COL_T_STUAT As Long = 3     '工程
+Const COL_T_B_ID As Long = 5    'B票
+Const COL_T_STATUS As Long = 17 '対応状況
 
 Sub RunTool()
     Dim wbTool As Workbook, wbManage As Workbook, wbTarget As Workbook
@@ -48,7 +48,7 @@ Sub RunTool()
     Dim dictKeyC As Object
     Dim dictTarget As Object
     
-    TARGET_SHEETS = Array("対応中", "完了", "品質向上")
+    TARGET_SHEETS = Array("対応中", "完了分", "品向T対応分")
     
     Application.ScreenUpdating = False
     Application.DisplayAlerts = False
@@ -58,14 +58,14 @@ Sub RunTool()
     Set wsRelease = wbTool.Sheets(SHEET_RELEASE)
     Set wsResult = wbTool.Sheets(SHEET_RESULT)
     
-    Set wbManage = Workbooks("manageFile.xlsx")
+    Set wbManage = Workbooks("【ST】リリース管理台帳_V00200.xlsx")
     Set wsAAA = wbManage.Sheets(SHEET_AAA)
     
-    Set wbTarget = Workbooks("targetFile.xlsx")
+    Set wbTarget = Workbooks("ST不良対応状況報告書_BBX.xlsm")
     
     '读取
     arrRelease = wsRelease.Range(wsRelease.Cells(2, COL_KEYA), wsRelease.Cells(wsRelease.Cells(wsRelease.Rows.Count, COL_KEYA).End(xlUp).Row, COL_KEYB)).Value2
-    arrAAA = wsAAA.Range(wsAAA.Cells(2, COL_AAA_KEYC), wsAAA.Cells(wsAAA.Cells(wsAAA.Rows.Count, COL_AAA_KEYC).End(xlUp).Row, COL_AAA_STATUS)).Value2
+    arrAAA = wsAAA.Range(wsAAA.Cells(2, 1), wsAAA.Cells(wsAAA.Cells(wsAAA.Rows.Count, COL_AAA_KEYC).End(xlUp).Row, COL_AAA_STATUS)).Value2
     
     '构建 keyC 索引
     Set dictKeyC = CreateObject("Scripting.Dictionary")
@@ -93,23 +93,23 @@ Sub RunTool()
     
     For Each k In TARGET_SHEETS
         Set wsT = wbTarget.Sheets(k)
-        lastRowT = wsT.Cells(wsT.Rows.Count, COL_T_B).End(xlUp).Row
+        lastRowT = wsT.Cells(wsT.Rows.Count, COL_T_STUAT).End(xlUp).Row
         If lastRowT >= 2 Then
-            arrT = wsT.Range(wsT.Cells(2, COL_T_A), wsT.Cells(lastRowT, COL_T_F)).Value2
+            arrT = wsT.Range(wsT.Cells(2, COL_T_NO), wsT.Cells(lastRowT, COL_T_STATUS)).Value2
             For i = 1 To UBound(arrT)
-                dictTarget(arrT(i, COL_T_B) & arrT(i, COL_T_E)) = Array(arrT(i, COL_T_A), arrT(i, COL_T_F))
+                dictTarget(arrT(i, COL_T_STUAT) & arrT(i, COL_T_B_ID)) = Array("sheet" & k, arrT(i, COL_T_STATUS))
             Next
         End If
     Next
     
     '结果缓存
     Dim res()
-    ReDim res(1 To 100000, 1 To 8)
+    ReDim res(1 To 1000, 1 To 8)
     r = 0
     
     'keyA
     For i = 1 To UBound(arrRelease)
-        keyA = arrRelease(i, 1)
+        keyA = CStr(arrRelease(i, 1))
         If keyA <> "" Then
             If dictKeyC.exists(keyA) Then
                 Dim rowsA, idx
@@ -195,7 +195,11 @@ NEXTI:
     
     '写入
     wsResult.Range(wsResult.Cells(2, 1), wsResult.Cells(wsResult.Rows.Count, 8)).ClearContents
-    If r > 0 Then wsResult.Cells(2, 1).Resize(r, 8).Value = res
+    If r > 0 Then
+        wsResult.Cells(2, 1).Resize(r, 8).Value = res
+        wsResult.Rows("2:" & r + 1).Interior.Pattern = xlNone
+        Call ColorByBlock(wsResult, 2, r + 1)
+    End If
     
     Application.ScreenUpdating = True
     Application.DisplayAlerts = True
@@ -213,3 +217,29 @@ Function AppendIndex(arr, val)
     tmp(UBound(tmp)) = val
     AppendIndex = tmp
 End Function
+
+Sub ColorByBlock(ws As Worksheet, startRow As Long, endRow As Long)
+    Dim i As Long
+    Dim currentVal As String, prevVal As String
+    Dim blockIndex As Long
+    
+    blockIndex = 0
+    prevVal = ""
+    
+    For i = startRow To endRow
+        currentVal = CStr(ws.Cells(i, COL_RES_B).Value)
+        
+        ' 新??始
+        If currentVal <> prevVal Then
+            blockIndex = blockIndex + 1
+            prevVal = currentVal
+        End If
+        
+        ' 偶数? → 上色
+        If blockIndex Mod 2 = 0 Then
+            ws.Rows(i).Interior.Color = RGB(198, 239, 206) '浅?色
+        Else
+            ws.Rows(i).Interior.Pattern = xlNone
+        End If
+    Next i
+End Sub
