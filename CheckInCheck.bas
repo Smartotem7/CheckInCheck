@@ -58,6 +58,7 @@ Sub RunTool()
     Application.ScreenUpdating = False
     Application.DisplayAlerts = False
     Application.EnableEvents = False
+    On Error GoTo CLEANUP
     
     Set wbTool = ThisWorkbook
     Set wsRelease = wbTool.Sheets(SHEET_RELEASE)
@@ -117,82 +118,12 @@ Sub RunTool()
     ReDim resultData(1 To 1000, 1 To 10)
     resultCount = 0
     
-    ' STキー処理
+    ' ST / UATキー処理
     For rowIndex = 1 To UBound(releaseData)
         releaseKeyST = CStr(releaseData(rowIndex, 1))
-        releaseKeySet("ST" & releaseKeyST) = 1
-        If releaseKeyST <> "" Then
-            If ledgerKeyIndex.exists(releaseKeyST) Then
-                Dim stMatchedRows, ledgerRow
-                stMatchedRows = ledgerKeyIndex(releaseKeyST)
-                For Each ledgerRow In stMatchedRows
-                    splitKeys = Split(ledgerData(ledgerRow, COL_AAA_KEYC), ",")
-                    For Each splitItem In splitKeys
-                        splitItem = Trim(splitItem)
-                        resultCount = resultCount + 1
-                        resultData(resultCount, COL_RES_A) = "ST"
-                        resultData(resultCount, COL_RES_B) = releaseKeyST
-                        
-                        If InStr(splitItem, "受入") > 0 Then
-                            resultData(resultCount, COL_RES_C) = "UAT"
-                            resultData(resultCount, COL_RES_D) = Replace(splitItem, "受入", "")
-                        Else
-                            resultData(resultCount, COL_RES_C) = "ST"
-                            resultData(resultCount, COL_RES_D) = splitItem
-                        End If
-                        
-                        resultData(resultCount, COL_RES_E) = ledgerData(ledgerRow, COL_AAA_NO)
-                        resultData(resultCount, COL_RES_F) = ledgerData(ledgerRow, COL_AAA_STATUS_OUT)
-                        resultData(resultCount, COL_RES_G) = ledgerData(ledgerRow, COL_AAA_STATUS_IN)
-                        resultData(resultCount, COL_RES_H) = ledgerData(ledgerRow, COL_AAA_DAY)
-                    Next
-                Next
-            Else
-                resultCount = resultCount + 1
-                resultData(resultCount, COL_RES_A) = "ST"
-                resultData(resultCount, COL_RES_B) = releaseKeyST
-                resultData(resultCount, COL_RES_I) = "台帳に不存在"
-            End If
-        End If
-    Next
-    
-    ' UATキー処理
-    For rowIndex = 1 To UBound(releaseData)
-        releaseKeyUAT = releaseData(rowIndex, 2)
-        releaseKeySet("UAT" & releaseKeyUAT) = 1
-        If releaseKeyUAT <> "" Then
-            If ledgerKeyIndex.exists("受入" & releaseKeyUAT) Then
-                Dim uatMatchedRows
-                uatMatchedRows = ledgerKeyIndex("受入" & releaseKeyUAT)
-                For Each ledgerRow In uatMatchedRows
-                    splitKeys = Split(ledgerData(ledgerRow, COL_AAA_KEYC), ",")
-                    For Each splitItem In splitKeys
-                        splitItem = Trim(splitItem)
-                        resultCount = resultCount + 1
-                        resultData(resultCount, COL_RES_A) = "UAT"
-                        resultData(resultCount, COL_RES_B) = releaseKeyUAT
-                        
-                        If InStr(splitItem, "受入") > 0 Then
-                            resultData(resultCount, COL_RES_C) = "UAT"
-                            resultData(resultCount, COL_RES_D) = Replace(splitItem, "受入", "")
-                        Else
-                            resultData(resultCount, COL_RES_C) = "ST"
-                            resultData(resultCount, COL_RES_D) = splitItem
-                        End If
-                        
-                        resultData(resultCount, COL_RES_E) = ledgerData(ledgerRow, COL_AAA_NO)
-                        resultData(resultCount, COL_RES_F) = ledgerData(ledgerRow, COL_AAA_STATUS_OUT)
-                        resultData(resultCount, COL_RES_G) = ledgerData(ledgerRow, COL_AAA_STATUS_IN)
-                        resultData(resultCount, COL_RES_H) = ledgerData(ledgerRow, COL_AAA_DAY)
-                    Next
-                Next
-            Else
-                resultCount = resultCount + 1
-                resultData(resultCount, COL_RES_A) = "UAT"
-                resultData(resultCount, COL_RES_B) = releaseKeyUAT
-                resultData(resultCount, COL_RES_I) = "台帳に不存在"
-            End If
-        End If
+        releaseKeyUAT = CStr(releaseData(rowIndex, 2))
+        ProcessReleaseKey "ST", releaseKeyST, releaseKeyST, ledgerData, ledgerKeyIndex, releaseKeySet, resultData, resultCount
+        ProcessReleaseKey "UAT", releaseKeyUAT, "受入" & releaseKeyUAT, ledgerData, ledgerKeyIndex, releaseKeySet, resultData, resultCount
     Next
     
     ' 対象ブック照合
@@ -226,6 +157,72 @@ NEXT_RESULT:
     Application.EnableEvents = True
     
     MsgBox "完了: " & resultCount & " 件"
+    Exit Sub
+
+CLEANUP:
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    Application.EnableEvents = True
+    If Err.Number <> 0 Then MsgBox "エラー: " & Err.Description
+End Sub
+
+Private Sub ProcessReleaseKey(ByVal keyType As String, ByVal releaseKey As String, ByVal ledgerLookupKey As String, _
+                              ByRef ledgerData, ByVal ledgerKeyIndex As Object, ByVal releaseKeySet As Object, _
+                              ByRef resultData() As Variant, ByRef resultCount As Long)
+    Dim matchedRows, ledgerRow, splitKeys, splitItem
+
+    If releaseKey = "" Then Exit Sub
+
+    releaseKeySet(keyType & releaseKey) = 1
+
+    If Not ledgerKeyIndex.exists(ledgerLookupKey) Then
+        AddMissingResult resultData, resultCount, keyType, releaseKey
+        Exit Sub
+    End If
+
+    matchedRows = ledgerKeyIndex(ledgerLookupKey)
+    For Each ledgerRow In matchedRows
+        splitKeys = Split(ledgerData(ledgerRow, COL_AAA_KEYC), ",")
+        For Each splitItem In splitKeys
+            splitItem = Trim(splitItem)
+            AddMatchedResult resultData, resultCount, keyType, releaseKey, splitItem, ledgerData, ledgerRow
+        Next
+    Next
+End Sub
+
+Private Sub EnsureResultCapacity(ByRef resultData() As Variant, ByVal resultCount As Long)
+    If resultCount <= UBound(resultData, 1) Then Exit Sub
+    ReDim Preserve resultData(1 To UBound(resultData, 1) * 2, 1 To 10)
+End Sub
+
+Private Sub AddMissingResult(ByRef resultData() As Variant, ByRef resultCount As Long, ByVal keyType As String, ByVal releaseKey As String)
+    resultCount = resultCount + 1
+    EnsureResultCapacity resultData, resultCount
+    resultData(resultCount, COL_RES_A) = keyType
+    resultData(resultCount, COL_RES_B) = releaseKey
+    resultData(resultCount, COL_RES_I) = "台帳に不存在"
+End Sub
+
+Private Sub AddMatchedResult(ByRef resultData() As Variant, ByRef resultCount As Long, ByVal keyType As String, ByVal releaseKey As String, _
+                             ByVal splitItem As String, ByRef ledgerData, ByVal ledgerRow As Long)
+    resultCount = resultCount + 1
+    EnsureResultCapacity resultData, resultCount
+
+    resultData(resultCount, COL_RES_A) = keyType
+    resultData(resultCount, COL_RES_B) = releaseKey
+
+    If InStr(splitItem, "受入") > 0 Then
+        resultData(resultCount, COL_RES_C) = "UAT"
+        resultData(resultCount, COL_RES_D) = Replace(splitItem, "受入", "")
+    Else
+        resultData(resultCount, COL_RES_C) = "ST"
+        resultData(resultCount, COL_RES_D) = splitItem
+    End If
+
+    resultData(resultCount, COL_RES_E) = ledgerData(ledgerRow, COL_AAA_NO)
+    resultData(resultCount, COL_RES_F) = ledgerData(ledgerRow, COL_AAA_STATUS_OUT)
+    resultData(resultCount, COL_RES_G) = ledgerData(ledgerRow, COL_AAA_STATUS_IN)
+    resultData(resultCount, COL_RES_H) = ledgerData(ledgerRow, COL_AAA_DAY)
 End Sub
 
 Function AppendIndex(arr, val)
