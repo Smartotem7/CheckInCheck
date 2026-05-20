@@ -69,7 +69,11 @@ Sub RunTool()
     Set wbTarget = Workbooks("ST不良対応状況報告書_BBX.xlsm")
     
     '读取
-    arrRelease = wsRelease.Range(wsRelease.Cells(2, COL_KEYA), wsRelease.Cells(wsRelease.Cells(wsRelease.Rows.Count, COL_KEYA).End(xlUp).Row, COL_KEYB)).Value2
+    Dim lastRowReleaseA As Long, lastRowReleaseB As Long, lastRowRelease As Long
+    lastRowReleaseA = wsRelease.Cells(wsRelease.Rows.Count, COL_KEYA).End(xlUp).Row
+    lastRowReleaseB = wsRelease.Cells(wsRelease.Rows.Count, COL_KEYB).End(xlUp).Row
+    lastRowRelease = Application.WorksheetFunction.Max(lastRowReleaseA, lastRowReleaseB)
+    arrRelease = wsRelease.Range(wsRelease.Cells(2, COL_KEYA), wsRelease.Cells(lastRowRelease, COL_KEYB)).Value2
     arrAAA = wsAAA.Range(wsAAA.Cells(2, 1), wsAAA.Cells(wsAAA.Cells(wsAAA.Rows.Count, COL_AAA_KEYC).End(xlUp).Row, COL_AAA_DAY)).Value2
     
     '构建 keyC 索引
